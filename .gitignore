@@ -1,0 +1,47 @@
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+
+# IDE
+.vscode/
+.idea/
+.vs/
+.vsconfig
+
+# Auto-generated
+ExportedObj/
+.consulo/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity cache
+sysinfo.txt
+
+# Crash reports
+crashlytics-build.properties
+
+# Addressables
+ServerData/
+
+# Mac
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
