@@ -5,31 +5,70 @@ public class GlassesFilter : MonoBehaviour
 {
     public Image filterImage;
 
-    private int currentFilter = 0;
+    private KeyCode activeFilter = KeyCode.None;
+    private Color currentFilterColor = new Color(0f, 0f, 0f, 0f);
+    private InventarioJugador inventory;
+    private Interaction interaction;
 
     void Update()
     {
-        ToggleFilter(KeyCode.Z, 1, new Color(1f, 0.85f, 0.5f, 0.25f));
-        ToggleFilter(KeyCode.X, 2, new Color(0.6f, 0.8f, 1f, 0.25f));
-        ToggleFilter(KeyCode.C, 3, new Color(0f, 0f, 0f, 0.35f));
+        if (Input.GetKeyDown(KeyCode.X))
+            ToggleFilter(KeyCode.X, new Color(1f, 0.85f, 0.5f, 0.25f));
+        else if (Input.GetKeyDown(KeyCode.Y))
+            ToggleFilter(KeyCode.Y, new Color(0.6f, 0.8f, 1f, 0.25f));
+        else if (Input.GetKeyDown(KeyCode.Z))
+            ToggleFilter(KeyCode.Z, new Color(1f, 0.45f, 0.68f, 0.3f));
+        else if (Input.GetKeyDown(KeyCode.C))
+            ToggleFilter(KeyCode.C, new Color(0.85f, 0.55f, 1f, 0.3f));
     }
 
-    void ToggleFilter(KeyCode key, int filterId, Color filterColor)
+    public bool IsFilterActive(KeyCode filterKey)
     {
-        if (!Input.GetKeyDown(key))
-            return;
+        return activeFilter == filterKey;
+    }
 
-        // Si ya estaba puesto ese filtro, lo quitamos
-        if (currentFilter == filterId)
+    private void ToggleFilter(KeyCode filterKey, Color filterColor)
+    {
+        if (inventory == null)
+            inventory = GetComponent<InventarioJugador>();
+
+        if (inventory == null || !inventory.HasItem(InventarioJugador.AnteojosId))
         {
-            filterImage.color = new Color(0f, 0f, 0f, 0f);
-            currentFilter = 0;
+            if (interaction == null)
+                interaction = GetComponent<Interaction>();
+
+            if (interaction != null)
+                interaction.ShowMessage("Necesitas los anteojos de sol para usar los filtros");
+
+            return;
+        }
+
+        if (activeFilter == filterKey)
+        {
+            activeFilter = KeyCode.None;
+            currentFilterColor = new Color(0f, 0f, 0f, 0f);
         }
         else
         {
-            filterImage.color = filterColor;
-            currentFilter = filterId;
+            activeFilter = filterKey;
+            currentFilterColor = filterColor;
         }
+
+        if (filterImage != null)
+            filterImage.color = currentFilterColor;
     }
 
+    private void OnGUI()
+    {
+        if (filterImage != null || activeFilter == KeyCode.None)
+            return;
+
+        Color previousColor = GUI.color;
+        int previousDepth = GUI.depth;
+        GUI.depth = 100;
+        GUI.color = currentFilterColor;
+        GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
+        GUI.color = previousColor;
+        GUI.depth = previousDepth;
+    }
 }
