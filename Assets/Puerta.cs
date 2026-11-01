@@ -10,6 +10,7 @@ public class Puerta : MonoBehaviour
     private bool isUnlocked = false;
     private Quaternion closedRotation;
     private Quaternion openRotation;
+    private float openingDirection = 1f;
 
     private void Awake()
     {
@@ -19,7 +20,8 @@ public class Puerta : MonoBehaviour
     void Start()
     {
         closedRotation = transform.rotation;
-        openRotation = Quaternion.Euler(transform.eulerAngles + Vector3.up * openAngle);
+        openingDirection = GetInwardOpeningDirection();
+        openRotation = Quaternion.Euler(transform.eulerAngles + Vector3.up * Mathf.Abs(openAngle) * openingDirection);
     }
 
     void Update()
@@ -58,9 +60,99 @@ public class Puerta : MonoBehaviour
             isUnlocked = true;
         }
 
-        isOpen = !isOpen;
+        bool shouldOpen = !isOpen;
+        Puerta[] group = GetEntranceDoorGroup();
+        if (group.Length > 1)
+        {
+            foreach (Puerta leaf in group)
+            {
+                if (leaf == null) continue;
+                leaf.isUnlocked = true;
+                leaf.isOpen = shouldOpen;
+            }
+        }
+        else
+        {
+            isOpen = shouldOpen;
+        }
         feedback = isOpen ? "Puerta abierta" : "Puerta cerrada";
         return true;
+    }
+
+    public Transform[] GetLinkedDoorTransforms()
+    {
+        Puerta[] group = GetEntranceDoorGroup();
+        System.Collections.Generic.List<Transform> linked = new System.Collections.Generic.List<Transform>();
+        foreach (Puerta leaf in group)
+            if (leaf != null && leaf != this) linked.Add(leaf.transform);
+        return linked.ToArray();
+    }
+
+    private Puerta[] GetEntranceDoorGroup()
+    {
+        if (GetEntranceSide(transform) == 0)
+            return new[] { this };
+
+        System.Collections.Generic.List<Puerta> group = new System.Collections.Generic.List<Puerta>();
+        foreach (Puerta candidate in FindObjectsByType<Puerta>(FindObjectsSortMode.None))
+        {
+            if (candidate != null && GetEntranceSide(candidate.transform) != 0)
+                group.Add(candidate);
+        }
+        return group.ToArray();
+    }
+
+    private int GetEntranceSide(Transform leaf)
+    {
+        Transform current = leaf;
+        while (current != null)
+        {
+            string objectName = current.name.ToLowerInvariant();
+            if (objectName.Contains("entrada_izquierda")) return -1;
+            if (objectName.Contains("entrada_derecha")) return 1;
+            current = current.parent;
+        }
+        return 0;
+    }
+
+    private float GetInwardOpeningDirection()
+    {
+        if (GetEntranceSide(transform) == 0) return Mathf.Sign(openAngle == 0f ? 1f : openAngle);
+
+        Puerta[] group = GetEntranceDoorGroup();
+        Vector3 midpoint = Vector3.zero;
+        int count = 0;
+        foreach (Puerta leaf in group)
+        {
+            if (leaf == null) continue;
+            midpoint += leaf.transform.position;
+            count++;
+        }
+        if (count == 0) return 1f;
+        midpoint /= count;
+
+        PlayerMovement player = FindFirstObjectByType<PlayerMovement>();
+        if (player == null) return 1f;
+        Vector3 inward = player.transform.position - midpoint;
+        inward.y = 0f;
+        if (inward.sqrMagnitude < 0.001f) return 1f;
+        inward.Normalize();
+
+        Bounds bounds = new Bounds(transform.position, Vector3.zero);
+        bool hasBounds = false;
+        foreach (Renderer renderer in GetComponentsInChildren<Renderer>(true))
+        {
+            if (!hasBounds) { bounds = renderer.bounds; hasBounds = true; }
+            else bounds.Encapsulate(renderer.bounds);
+        }
+        Vector3 hingeToLeaf = hasBounds ? bounds.center - transform.position : transform.right;
+        hingeToLeaf.y = 0f;
+        if (hingeToLeaf.sqrMagnitude < 0.001f) hingeToLeaf = transform.right;
+
+        float angle = Mathf.Abs(openAngle);
+        Vector3 positiveMovement = Quaternion.AngleAxis(angle, Vector3.up) * hingeToLeaf - hingeToLeaf;
+        Vector3 negativeMovement = Quaternion.AngleAxis(-angle, Vector3.up) * hingeToLeaf - hingeToLeaf;
+        return Vector3.Dot(positiveMovement, inward) >= Vector3.Dot(negativeMovement, inward) ? 1f : -1f;
     }
 
     public void ToggleDoor()

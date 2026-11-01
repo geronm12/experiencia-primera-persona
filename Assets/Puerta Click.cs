@@ -7,6 +7,7 @@ public class Interaction : MonoBehaviour
     public KeyCode interactionKey = KeyCode.E;
     public Color highlightColor = new Color(0.35f, 0.9f, 1f, 1f);
     public AudioClip speakerMusic;
+    public Texture televisionImage;
 
     private Camera playerCamera;
     private PlayerMovement playerMovement;
@@ -22,9 +23,11 @@ public class Interaction : MonoBehaviour
     private string selectedArchiveMessage;
     private readonly List<string> messageArchive = new List<string>();
     private bool papersRead;
+    private bool teethBrushed;
     private bool televisionOn = true;
     private bool speakersPlaying = true;
     private GameObject televisionScreen;
+    private readonly List<Transform> cellphoneTargets = new List<Transform>();
     private string pendingTasksMessage;
     private float pendingTasksUntil;
     private GUIStyle promptStyle;
@@ -46,6 +49,8 @@ public class Interaction : MonoBehaviour
     private int baseColorId;
     private int colorId;
     private int emissionColorId;
+    private int televisionBaseMapId;
+    private int televisionMainTexId;
     private const string IntroText = "Vuelves a casa después de una larga jornada de trabajar, tu misión es ir acostarte a dormir para poder descansar correctamente";
 
     private static readonly Dictionary<string, string> namedObjectPrompts = new Dictionary<string, string>
@@ -91,6 +96,7 @@ public class Interaction : MonoBehaviour
         public string prompt;
         public bool canInteract = true;
         public bool isOccluded;
+        public Transform[] additionalVisualRoots;
     }
 
     public bool IsInventoryOpen => inventoryOpen;
@@ -102,6 +108,8 @@ public class Interaction : MonoBehaviour
         baseColorId = Shader.PropertyToID("_BaseColor");
         colorId = Shader.PropertyToID("_Color");
         emissionColorId = Shader.PropertyToID("_EmissionColor");
+        televisionBaseMapId = Shader.PropertyToID("_BaseMap");
+        televisionMainTexId = Shader.PropertyToID("_MainTex");
 
         // The legacy scene also has this component on some doors. Only the player
         // should run the shared raycast, otherwise several copies interact at once.
@@ -127,6 +135,9 @@ public class Interaction : MonoBehaviour
         {
             if (namedObjectPrompts.ContainsKey(sceneTransform.name))
                 highlightOnlyTargets.Add(sceneTransform);
+
+            if (IsCellphone(sceneTransform.name))
+                cellphoneTargets.Add(sceneTransform);
 
             if (IsTelevision(sceneTransform.name))
                 InitializeTelevision(sceneTransform);
@@ -166,6 +177,18 @@ public class Interaction : MonoBehaviour
             if (child.name == "Screen")
             {
                 televisionScreen = child.gameObject;
+                Renderer[] screenRenderers = child.GetComponentsInChildren<Renderer>(true);
+                foreach (Renderer screenRenderer in screenRenderers)
+                {
+                    MaterialPropertyBlock block = new MaterialPropertyBlock();
+                    screenRenderer.GetPropertyBlock(block);
+                    Texture display = televisionImage != null ? televisionImage : Texture2D.whiteTexture;
+                    block.SetTexture(televisionBaseMapId, display);
+                    block.SetTexture(televisionMainTexId, display);
+                    block.SetColor(baseColorId, Color.white);
+                    block.SetColor(colorId, Color.white);
+                    screenRenderer.SetPropertyBlock(block);
+                }
                 televisionScreen.SetActive(true);
                 televisionOn = true;
                 return;
@@ -339,7 +362,8 @@ public class Interaction : MonoBehaviour
     {
         Puerta door = hitCollider.GetComponentInParent<Puerta>();
         if (door != null)
-            return MakeTarget(door, door.transform, door.GetInteractionPrompt(inventory));
+            return MakeTarget(door, door.transform, door.GetInteractionPrompt(inventory), true, false,
+                door.GetLinkedDoorTransforms());
 
         InterruptorLuz lightSwitch = hitCollider.GetComponentInParent<InterruptorLuz>();
         if (lightSwitch != null)
@@ -429,7 +453,7 @@ public class Interaction : MonoBehaviour
     }
 
     private InteractableTarget MakeTarget(Component component, Transform visualRoot, string prompt,
-        bool canInteract = true, bool isOccluded = false)
+        bool canInteract = true, bool isOccluded = false, Transform[] additionalVisualRoots = null)
     {
         return new InteractableTarget
         {
@@ -437,7 +461,8 @@ public class Interaction : MonoBehaviour
             visualRoot = visualRoot,
             prompt = prompt,
             canInteract = canInteract,
-            isOccluded = isOccluded
+            isOccluded = isOccluded,
+            additionalVisualRoots = additionalVisualRoots
         };
     }
 
@@ -494,6 +519,7 @@ public class Interaction : MonoBehaviour
             }
             else if (target.name == "Cepillo_dientes")
             {
+                teethBrushed = true;
                 ShowMessage("Te lavaste los dientes", 3f);
             }
             else
@@ -522,6 +548,13 @@ public class Interaction : MonoBehaviour
             return;
         }
 
+        Transform[] sceneTransforms = FindObjectsByType<Transform>(FindObjectsSortMode.None);
+        foreach (Transform candidate in sceneTransforms)
+        {
+            if (candidate != null && TryGetPickup(candidate.name, out string candidateId, out _) &&
+                candidateId == itemId)
+                candidate.gameObject.SetActive(false);
+        }
         target.gameObject.SetActive(false);
         ShowMessage("Recogiste: " + displayName);
     }
@@ -531,6 +564,8 @@ public class Interaction : MonoBehaviour
         List<string> pending = new List<string>();
         if (!papersRead)
             pending.Add("Leer los papeles");
+        if (!teethBrushed)
+            pending.Add("Cepillarse los dientes");
         if (!inventory.HasItem(InventarioJugador.AnteojosId))
             pending.Add("Encontrar y recoger los anteojos de sol");
         if (!inventory.HasItem(InventarioJugador.LlaveEntradaId))
@@ -759,7 +794,17 @@ public class Interaction : MonoBehaviour
         if (currentTarget == null || currentTarget.visualRoot == null)
             return;
 
-        Renderer[] renderers = currentTarget.visualRoot.GetComponentsInChildren<Renderer>();
+        HashSet<Renderer> renderers = new HashSet<Renderer>(currentTarget.visualRoot.GetComponentsInChildren<Renderer>());
+        if (currentTarget.additionalVisualRoots != null)
+        {
+            foreach (Transform extraRoot in currentTarget.additionalVisualRoots)
+            {
+                if (extraRoot == null) continue;
+                foreach (Renderer renderer in extraRoot.GetComponentsInChildren<Renderer>())
+                    renderers.Add(renderer);
+            }
+        }
+
         foreach (Renderer renderer in renderers)
         {
             if (renderer == null)
@@ -866,13 +911,20 @@ public class Interaction : MonoBehaviour
             GUI.Label(new Rect(centerX + 170f, Screen.height - 48f, 130f, 22f), "Esc para cerrar", messageStyle);
         }
 
-        if (currentTarget != null && currentTarget.isOccluded && currentTarget.visualRoot != null)
+        if (glassesFilter != null && glassesFilter.IsFilterActive(KeyCode.C))
         {
-            Vector3 screenPosition = playerCamera.WorldToScreenPoint(currentTarget.visualRoot.position);
-            if (screenPosition.z > 0f)
+            foreach (Transform phone in cellphoneTargets)
             {
-                Rect marker = new Rect(screenPosition.x - 58f, Screen.height - screenPosition.y - 18f, 116f, 36f);
-                GUI.Box(marker, "Celular", promptStyle);
+                if (phone == null || !phone.gameObject.activeInHierarchy) continue;
+                Vector3 screenPosition = playerCamera.WorldToScreenPoint(phone.position);
+                if (screenPosition.z > 0f && screenPosition.x >= 0f && screenPosition.x <= Screen.width &&
+                    screenPosition.y >= 0f && screenPosition.y <= Screen.height)
+                {
+                    float x = screenPosition.x;
+                    float y = Screen.height - screenPosition.y;
+                    GUI.Label(new Rect(x - 14f, y - 18f, 28f, 36f), "●", keyHaloStyle);
+                    GUI.Box(new Rect(x - 48f, y + 12f, 96f, 28f), "Celular", promptStyle);
+                }
             }
         }
 

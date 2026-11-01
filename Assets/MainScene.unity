@@ -1027,6 +1027,8 @@ MonoBehaviour:
   distance: 1
   interactionKey: 101
   highlightColor: {r: 0.35, g: 0.9, b: 1, a: 1}
+  speakerMusic: {fileID: 0}
+  televisionImage: {fileID: 0}
 --- !u!114 &8604172
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -15910,6 +15912,8 @@ MonoBehaviour:
   distance: 1
   interactionKey: 101
   highlightColor: {r: 0.35, g: 0.9, b: 1, a: 1}
+  speakerMusic: {fileID: 0}
+  televisionImage: {fileID: 0}
 --- !u!65 &280389744
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -32740,7 +32744,8 @@ MonoBehaviour:
   distance: 3
   interactionKey: 101
   highlightColor: {r: 0.35, g: 0.9, b: 1, a: 1}
-  speakerMusic: {fileID: 8300000, guid: 830090b737fe4af45a09ead39ba7e660, type: 3}
+  speakerMusic: {fileID: 0}
+  televisionImage: {fileID: 0}
 --- !u!114 &621640848
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -50572,6 +50577,8 @@ MonoBehaviour:
   distance: 1
   interactionKey: 101
   highlightColor: {r: 0.35, g: 0.9, b: 1, a: 1}
+  speakerMusic: {fileID: 0}
+  televisionImage: {fileID: 0}
 --- !u!65 &948832029
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -60036,6 +60043,8 @@ MonoBehaviour:
   distance: 1
   interactionKey: 101
   highlightColor: {r: 0.35, g: 0.9, b: 1, a: 1}
+  speakerMusic: {fileID: 0}
+  televisionImage: {fileID: 0}
 --- !u!65 &1102945983
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -71240,6 +71249,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 5386436854384878193, guid: 7769b6e68c1a90a458fec4955db6b2fd, type: 3}
+      propertyPath: Player
+      value: 
+      objectReference: {fileID: 621640845}
     - target: {fileID: 5434180270621396412, guid: 7769b6e68c1a90a458fec4955db6b2fd, type: 3}
       propertyPath: m_LocalScale.x
       value: 0.5
@@ -71292,6 +71305,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 5483040691484923751, guid: 7769b6e68c1a90a458fec4955db6b2fd, type: 3}
+      propertyPath: Player
+      value: 
+      objectReference: {fileID: 621640845}
     - target: {fileID: 7851711041489694631, guid: 7769b6e68c1a90a458fec4955db6b2fd, type: 3}
       propertyPath: m_Name
       value: Dresser Closet_01
