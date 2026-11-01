@@ -11,8 +11,11 @@ public class InventarioJugador : MonoBehaviour
 
     private readonly HashSet<string> itemIds = new HashSet<string>();
     private readonly List<string> itemNames = new List<string>();
+    private readonly List<string> itemOrder = new List<string>();
+    private readonly Dictionary<string, string> displayNames = new Dictionary<string, string>();
 
-    public int Count => itemNames.Count;
+    public int Count => itemOrder.Count;
+    public IReadOnlyList<string> ItemIds => itemOrder;
 
     public bool HasItem(string itemId)
     {
@@ -24,8 +27,32 @@ public class InventarioJugador : MonoBehaviour
         if (string.IsNullOrEmpty(itemId) || !itemIds.Add(itemId))
             return false;
 
+        itemOrder.Add(itemId);
         itemNames.Add(displayName);
+        displayNames[itemId] = displayName;
         return true;
+    }
+
+    public string GetDisplayName(string itemId)
+    {
+        return displayNames.TryGetValue(itemId, out string displayName) ? displayName : itemId;
+    }
+
+    public string GetDescription(string itemId)
+    {
+        switch (itemId)
+        {
+            case AnteojosId:
+                return "Presiona Z, X o C para aplicar los filtros de los anteojos. ¡Pueden revelarse objetos ocultos!";
+            case LlaveEntradaId:
+                return "Llave de la puerta frontal de la casa.";
+            case LlaveTocadorId:
+                return "Llave de la puerta del baño.";
+            case CelularId:
+                return "Celular para apagar la televisión. Se revela con el filtro C.";
+            default:
+                return "";
+        }
     }
 
     public string GetContentsText()

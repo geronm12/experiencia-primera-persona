@@ -32740,6 +32740,7 @@ MonoBehaviour:
   distance: 3
   interactionKey: 101
   highlightColor: {r: 0.35, g: 0.9, b: 1, a: 1}
+  speakerMusic: {fileID: 8300000, guid: 830090b737fe4af45a09ead39ba7e660, type: 3}
 --- !u!114 &621640848
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -12,6 +12,12 @@ public class GlassesFilter : MonoBehaviour
 
     void Update()
     {
+        if (interaction == null)
+            interaction = GetComponent<Interaction>();
+
+        if (interaction != null && interaction.IsInventoryOpen)
+            return;
+
         if (Input.GetKeyDown(KeyCode.X))
             ToggleFilter(KeyCode.X, new Color(1f, 0.85f, 0.5f, 0.25f));
         else if (Input.GetKeyDown(KeyCode.Y))

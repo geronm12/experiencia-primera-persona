@@ -6,8 +6,10 @@ public class Interaction : MonoBehaviour
     public float distance = 3f;
     public KeyCode interactionKey = KeyCode.E;
     public Color highlightColor = new Color(0.35f, 0.9f, 1f, 1f);
+    public AudioClip speakerMusic;
 
     private Camera playerCamera;
+    private PlayerMovement playerMovement;
     private InventarioJugador inventory;
     private InteractableTarget currentTarget;
     private string message;
@@ -15,7 +17,14 @@ public class Interaction : MonoBehaviour
     private bool introVisible = true;
     private float introUntil;
     private bool inventoryOpen;
+    private int activeInventoryTab;
+    private string selectedInventoryItemId;
+    private string selectedArchiveMessage;
+    private readonly List<string> messageArchive = new List<string>();
     private bool papersRead;
+    private bool televisionOn = true;
+    private bool speakersPlaying = true;
+    private GameObject televisionScreen;
     private string pendingTasksMessage;
     private float pendingTasksUntil;
     private GUIStyle promptStyle;
@@ -24,8 +33,16 @@ public class Interaction : MonoBehaviour
     private readonly Dictionary<Renderer, MaterialPropertyBlock> originalBlocks = new Dictionary<Renderer, MaterialPropertyBlock>();
     private readonly List<Transform> highlightOnlyTargets = new List<Transform>();
     private readonly List<FilterHiddenTarget> filterHiddenTargets = new List<FilterHiddenTarget>();
+    private readonly List<AudioSource> speakerAudioSources = new List<AudioSource>();
     private MaterialPropertyBlock highlightBlock;
+    private MaterialPropertyBlock filterGlowBlock;
     private GlassesFilter glassesFilter;
+    private GUIStyle inventoryTitleStyle;
+    private GUIStyle inventoryDescriptionStyle;
+    private GUIStyle inventoryButtonStyle;
+    private GUIStyle keyHaloStyle;
+    private Vector2 inventoryScroll;
+    private Vector2 archiveScroll;
     private int baseColorId;
     private int colorId;
     private int emissionColorId;
@@ -58,8 +75,10 @@ public class Interaction : MonoBehaviour
     {
         public Transform root;
         public KeyCode requiredFilter;
+        public bool hideColliders;
         public Renderer[] renderers;
         public bool[] rendererWasEnabled;
+        public MaterialPropertyBlock[] originalMaterialBlocks;
         public Collider[] colliders;
         public bool[] colliderWasEnabled;
         public bool isVisible;
@@ -74,9 +93,12 @@ public class Interaction : MonoBehaviour
         public bool isOccluded;
     }
 
+    public bool IsInventoryOpen => inventoryOpen;
+
     private void Awake()
     {
         highlightBlock = new MaterialPropertyBlock();
+        filterGlowBlock = new MaterialPropertyBlock();
         baseColorId = Shader.PropertyToID("_BaseColor");
         colorId = Shader.PropertyToID("_Color");
         emissionColorId = Shader.PropertyToID("_EmissionColor");
@@ -93,18 +115,26 @@ public class Interaction : MonoBehaviour
         if (inventory == null)
             inventory = gameObject.AddComponent<InventarioJugador>();
 
+        playerMovement = GetComponent<PlayerMovement>();
         playerCamera = GetComponentInChildren<Camera>();
         if (playerCamera == null)
             playerCamera = Camera.main;
         glassesFilter = GetComponent<GlassesFilter>();
 
         Transform[] sceneTransforms = FindObjectsByType<Transform>(FindObjectsSortMode.None);
+        HashSet<int> processedSpeakers = new HashSet<int>();
         foreach (Transform sceneTransform in sceneTransforms)
         {
             if (namedObjectPrompts.ContainsKey(sceneTransform.name))
                 highlightOnlyTargets.Add(sceneTransform);
 
-            KeyCode requiredFilter = GetRequiredFilter(sceneTransform.name);
+            if (IsTelevision(sceneTransform.name))
+                InitializeTelevision(sceneTransform);
+
+            if (IsSpeaker(sceneTransform.name) && processedSpeakers.Add(sceneTransform.GetInstanceID()))
+                InitializeSpeaker(sceneTransform);
+
+            KeyCode requiredFilter = GetVisibilityFilter(sceneTransform.name);
             if (requiredFilter == KeyCode.None)
                 continue;
 
@@ -114,23 +144,142 @@ public class Interaction : MonoBehaviour
             {
                 root = sceneTransform,
                 requiredFilter = requiredFilter,
+                hideColliders = GetRequiredFilter(sceneTransform.name) != KeyCode.None,
                 renderers = renderers,
                 rendererWasEnabled = GetRendererEnabledStates(renderers),
+                originalMaterialBlocks = GetOriginalMaterialBlocks(renderers),
                 colliders = colliders,
                 colliderWasEnabled = GetColliderEnabledStates(colliders),
                 isVisible = true
             };
             filterHiddenTargets.Add(hiddenTarget);
         }
+
+        SetSpeakersPlaying(true);
+    }
+
+    private void InitializeTelevision(Transform television)
+    {
+        Transform[] children = television.GetComponentsInChildren<Transform>(true);
+        foreach (Transform child in children)
+        {
+            if (child.name == "Screen")
+            {
+                televisionScreen = child.gameObject;
+                televisionScreen.SetActive(true);
+                televisionOn = true;
+                return;
+            }
+        }
+    }
+
+    private void InitializeSpeaker(Transform speaker)
+    {
+        AudioSource[] sources = speaker.GetComponentsInChildren<AudioSource>(true);
+        if (sources.Length == 0)
+            sources = new[] { speaker.gameObject.AddComponent<AudioSource>() };
+
+        foreach (AudioSource source in sources)
+        {
+            if (source == null)
+                continue;
+
+            source.playOnAwake = false;
+            source.loop = true;
+            source.spatialBlend = 0.35f;
+            source.volume = 0.25f;
+            source.minDistance = 2f;
+            source.maxDistance = 12f;
+            if (speakerMusic != null)
+                source.clip = speakerMusic;
+
+            speakerAudioSources.Add(source);
+        }
+    }
+
+    private void SetSpeakersPlaying(bool shouldPlay)
+    {
+        speakersPlaying = shouldPlay;
+        foreach (AudioSource source in speakerAudioSources)
+        {
+            if (source == null || source.clip == null)
+                continue;
+
+            if (shouldPlay)
+            {
+                if (!source.isPlaying)
+                    source.Play();
+            }
+            else if (source.isPlaying)
+            {
+                source.Stop();
+            }
+        }
+    }
+
+    private bool IsTelevision(string objectName)
+    {
+        return objectName == "Televisor" || objectName == "TV_Apt_01";
+    }
+
+    private bool IsSpeaker(string objectName)
+    {
+        return objectName == "Parlante_Izquierdo" || objectName == "Parlante_Derecho" ||
+               objectName == "SS_Stand_01 (1)" || objectName == "SS_Stand_01 (2)" ||
+               objectName == "SS_Stand_01 (3)" || objectName == "SS_Stand_01 (4)";
+    }
+
+    private string GetNamedObjectPrompt(Transform target)
+    {
+        if (IsTelevision(target.name))
+        {
+            if (!inventory.HasItem(InventarioJugador.CelularId))
+                return "E - Necesitas el celular";
+
+            return televisionOn ? "E - Apagar televisión" : "E - Prender televisión";
+        }
+
+        if (IsSpeaker(target.name))
+            return speakersPlaying ? "E - Apagar parlantes" : "E - Prender parlantes";
+
+        return namedObjectPrompts[target.name];
+    }
+
+    private void SetInventoryOpen(bool open)
+    {
+        inventoryOpen = open;
+        if (playerMovement != null)
+            playerMovement.enabled = !open;
+
+        Cursor.lockState = open ? CursorLockMode.None : CursorLockMode.Locked;
+        Cursor.visible = open;
     }
 
     private void Start()
     {
         introUntil = Time.unscaledTime + 10f;
+        AddToArchive(IntroText);
     }
 
     private void Update()
     {
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            if (inventoryOpen)
+                SetInventoryOpen(false);
+
+            introVisible = false;
+            message = null;
+            pendingTasksMessage = null;
+            return;
+        }
+
+        if (Input.GetKeyDown(KeyCode.Tab))
+            SetInventoryOpen(!inventoryOpen);
+
+        if (inventoryOpen)
+            return;
+
         if (playerCamera == null)
         {
             ClearTarget();
@@ -158,11 +307,14 @@ public class Interaction : MonoBehaviour
             currentTarget = nextTarget;
             ApplyHighlight();
         }
+        else if (currentTarget != null && nextTarget != null)
+        {
+            currentTarget.prompt = nextTarget.prompt;
+            currentTarget.canInteract = nextTarget.canInteract;
+            currentTarget.isOccluded = nextTarget.isOccluded;
+        }
 
         bool pressedInteract = Input.GetKeyDown(interactionKey) || Input.GetMouseButtonDown(0);
-        if (Input.GetKeyDown(KeyCode.Tab))
-            inventoryOpen = !inventoryOpen;
-
         if (introVisible)
         {
             if (Time.unscaledTime >= introUntil || pressedInteract)
@@ -211,7 +363,7 @@ public class Interaction : MonoBehaviour
 
         Transform namedObject = FindNamedHighlightObject(hitCollider.transform);
         if (namedObject != null)
-            return MakeTarget(namedObject, namedObject, namedObjectPrompts[namedObject.name]);
+            return MakeTarget(namedObject, namedObject, GetNamedObjectPrompt(namedObject));
 
         return null;
     }
@@ -271,7 +423,7 @@ public class Interaction : MonoBehaviour
 
         string prompt = closestTargetIsOccluded
             ? "Celular detectado con C"
-            : namedObjectPrompts[closestTarget.name];
+            : GetNamedObjectPrompt(closestTarget);
         return MakeTarget(closestTarget, closestTarget, prompt, !closestTargetIsOccluded,
             closestTargetIsOccluded);
     }
@@ -317,7 +469,25 @@ public class Interaction : MonoBehaviour
         }
         else if (component is Transform target)
         {
-            if (target.name == "Papers")
+            if (IsTelevision(target.name))
+            {
+                if (!inventory.HasItem(InventarioJugador.CelularId))
+                {
+                    ShowMessage("Necesitas el celular para apagar la televisión");
+                    return;
+                }
+
+                televisionOn = !televisionOn;
+                if (televisionScreen != null)
+                    televisionScreen.SetActive(televisionOn);
+                ShowMessage(televisionOn ? "Televisión encendida" : "Televisión apagada");
+            }
+            else if (IsSpeaker(target.name))
+            {
+                SetSpeakersPlaying(!speakersPlaying);
+                ShowMessage(speakersPlaying ? "Parlantes encendidos" : "Parlantes apagados");
+            }
+            else if (target.name == "Papers")
             {
                 papersRead = true;
                 ShowMessage("Dejé las llaves de la puerta de casa en el banco de atrás, para poder encontrarlas deberás buscar los anteojos de sol", 8f);
@@ -369,16 +539,35 @@ public class Interaction : MonoBehaviour
             pending.Add("Encontrar y recoger la llave del baño");
         if (!inventory.HasItem(InventarioJugador.CelularId))
             pending.Add("Encontrar y recoger el celular");
+        if (televisionOn)
+            pending.Add("Apagar la televisión con el celular");
+        if (speakersPlaying)
+            pending.Add("Apagar los parlantes");
+        if (AnyControlledLightsAreOn())
+            pending.Add("Apagar las luces");
 
         if (pending.Count > 0)
         {
             pendingTasksMessage = "Antes de dormir, termina estos pendientes:\n\n• " + string.Join("\n• ", pending);
             pendingTasksUntil = Time.unscaledTime + 12f;
+            AddToArchive(pendingTasksMessage);
             return;
         }
 
         bed.Dormir();
         ShowMessage("Completaste los pendientes. Buen descanso.", 3f);
+    }
+
+    private bool AnyControlledLightsAreOn()
+    {
+        InterruptorLuz[] switches = FindObjectsByType<InterruptorLuz>(FindObjectsSortMode.None);
+        foreach (InterruptorLuz lightSwitch in switches)
+        {
+            if (lightSwitch != null && lightSwitch.IsOn)
+                return true;
+        }
+
+        return false;
     }
 
     private bool TryGetPickup(string objectName, out string itemId, out string displayName)
@@ -416,6 +605,13 @@ public class Interaction : MonoBehaviour
     {
         message = text;
         messageUntil = Time.unscaledTime + duration;
+        AddToArchive(text);
+    }
+
+    private void AddToArchive(string text)
+    {
+        if (!string.IsNullOrWhiteSpace(text) && !messageArchive.Contains(text))
+            messageArchive.Add(text);
     }
 
     private void UpdateFilterHiddenTargets()
@@ -427,22 +623,54 @@ public class Interaction : MonoBehaviour
 
             bool shouldBeVisible = glassesFilter != null &&
                                    glassesFilter.IsFilterActive(target.requiredFilter);
-            if (target.isVisible == shouldBeVisible)
+            if (target.isVisible != shouldBeVisible)
+            {
+                for (int i = 0; i < target.renderers.Length; i++)
+                {
+                    if (target.renderers[i] != null)
+                    {
+                        target.renderers[i].enabled = shouldBeVisible && target.rendererWasEnabled[i];
+                        if (!shouldBeVisible && target.originalMaterialBlocks[i] != null)
+                            target.renderers[i].SetPropertyBlock(target.originalMaterialBlocks[i]);
+                    }
+                }
+
+                if (target.hideColliders)
+                {
+                    for (int i = 0; i < target.colliders.Length; i++)
+                    {
+                        if (target.colliders[i] != null)
+                            target.colliders[i].enabled = shouldBeVisible && target.colliderWasEnabled[i];
+                    }
+                }
+
+                target.isVisible = shouldBeVisible;
+            }
+
+            if (shouldBeVisible && target.hideColliders)
+            {
+                ApplyKeyGlow(target);
+            }
+        }
+    }
+
+    private void ApplyKeyGlow(FilterHiddenTarget target)
+    {
+        float pulse = (Mathf.Sin(Time.unscaledTime * 4.5f) + 1f) * 0.5f;
+        Color glowColor = Color.Lerp(new Color(1f, 0.78f, 0.46f, 1f), Color.white, pulse);
+        float emission = 0.8f + pulse * 1.2f;
+
+        foreach (Renderer renderer in target.renderers)
+        {
+            if (renderer == null || !renderer.enabled)
                 continue;
 
-            for (int i = 0; i < target.renderers.Length; i++)
-            {
-                if (target.renderers[i] != null)
-                    target.renderers[i].enabled = shouldBeVisible && target.rendererWasEnabled[i];
-            }
-
-            for (int i = 0; i < target.colliders.Length; i++)
-            {
-                if (target.colliders[i] != null)
-                    target.colliders[i].enabled = shouldBeVisible && target.colliderWasEnabled[i];
-            }
-
-            target.isVisible = shouldBeVisible;
+            filterGlowBlock.Clear();
+            renderer.GetPropertyBlock(filterGlowBlock);
+            filterGlowBlock.SetColor(baseColorId, glowColor);
+            filterGlowBlock.SetColor(colorId, glowColor);
+            filterGlowBlock.SetColor(emissionColorId, Color.white * emission);
+            renderer.SetPropertyBlock(filterGlowBlock);
         }
     }
 
@@ -464,6 +692,21 @@ public class Interaction : MonoBehaviour
         return enabledStates;
     }
 
+    private MaterialPropertyBlock[] GetOriginalMaterialBlocks(Renderer[] renderers)
+    {
+        MaterialPropertyBlock[] blocks = new MaterialPropertyBlock[renderers.Length];
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] == null)
+                continue;
+
+            blocks[i] = new MaterialPropertyBlock();
+            renderers[i].GetPropertyBlock(blocks[i]);
+        }
+
+        return blocks;
+    }
+
     private KeyCode GetRequiredFilter(string objectName)
     {
         switch (objectName)
@@ -477,6 +720,15 @@ public class Interaction : MonoBehaviour
             default:
                 return KeyCode.None;
         }
+    }
+
+    private KeyCode GetVisibilityFilter(string objectName)
+    {
+        KeyCode itemFilter = GetRequiredFilter(objectName);
+        if (itemFilter != KeyCode.None)
+            return itemFilter;
+
+        return IsCellphone(objectName) ? KeyCode.C : KeyCode.None;
     }
 
     private KeyCode GetSelectionFilter(string objectName)
@@ -566,6 +818,39 @@ public class Interaction : MonoBehaviour
                 wordWrap = true,
                 normal = { textColor = Color.white }
             };
+            inventoryTitleStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 24,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = Color.white }
+            };
+            inventoryDescriptionStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.UpperLeft,
+                fontSize = 18,
+                wordWrap = true,
+                normal = { textColor = Color.white }
+            };
+            inventoryButtonStyle = new GUIStyle(GUI.skin.button)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 16,
+                wordWrap = true
+            };
+            keyHaloStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 34,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = Color.white }
+            };
+        }
+
+        if (inventoryOpen)
+        {
+            DrawInventoryPanel();
+            return;
         }
 
         float centerX = Screen.width * 0.5f;
@@ -576,7 +861,10 @@ public class Interaction : MonoBehaviour
             GUI.Box(new Rect(centerX - 155f, centerY + 28f, 310f, 34f), currentTarget.prompt, promptStyle);
 
         if (!string.IsNullOrEmpty(message) && Time.unscaledTime < messageUntil)
+        {
             GUI.Box(new Rect(centerX - 310f, Screen.height - 120f, 620f, 76f), message, promptStyle);
+            GUI.Label(new Rect(centerX + 170f, Screen.height - 48f, 130f, 22f), "Esc para cerrar", messageStyle);
+        }
 
         if (currentTarget != null && currentTarget.isOccluded && currentTarget.visualRoot != null)
         {
@@ -588,17 +876,142 @@ public class Interaction : MonoBehaviour
             }
         }
 
+        DrawRevealedKeyHalos();
+
         if (!string.IsNullOrEmpty(pendingTasksMessage) && Time.unscaledTime < pendingTasksUntil)
-            GUI.Box(new Rect(centerX - 320f, centerY - 110f, 640f, 220f), pendingTasksMessage, introStyle);
+        {
+            GUI.Box(new Rect(centerX - 320f, centerY - 160f, 640f, 320f), pendingTasksMessage, introStyle);
+            GUI.Label(new Rect(centerX + 160f, centerY + 126f, 130f, 22f), "Esc para cerrar", messageStyle);
+        }
 
         GUI.Label(new Rect(18f, 18f, 170f, 26f), "Tab - Inventario", messageStyle);
-        if (inventoryOpen)
-            GUI.Box(new Rect(18f, 44f, 240f, 150f), inventory.GetContentsText(), promptStyle);
 
         if (introVisible)
         {
-            string intro = IntroText + "\n\nPulsa E o haz clic para continuar";
+            string intro = IntroText + "\n\nPulsa E, haz clic o Esc para cerrar";
             GUI.Box(new Rect(Screen.width * 0.2f, Screen.height * 0.32f, Screen.width * 0.6f, 150f), intro, introStyle);
         }
+    }
+
+    private void DrawRevealedKeyHalos()
+    {
+        if (playerCamera == null)
+            return;
+
+        foreach (FilterHiddenTarget target in filterHiddenTargets)
+        {
+            if (target.root == null || !target.isVisible || !target.hideColliders)
+                continue;
+
+            Vector3 screenPosition = playerCamera.WorldToScreenPoint(target.root.position);
+            if (screenPosition.z <= 0f || screenPosition.x < 0f || screenPosition.x > Screen.width ||
+                screenPosition.y < 0f || screenPosition.y > Screen.height)
+            {
+                continue;
+            }
+
+            GUI.Label(new Rect(screenPosition.x - 24f, Screen.height - screenPosition.y - 24f, 48f, 48f),
+                "◉", keyHaloStyle);
+        }
+    }
+
+    private void DrawInventoryPanel()
+    {
+        float panelWidth = Mathf.Min(760f, Screen.width - 40f);
+        float panelHeight = Mathf.Min(470f, Screen.height - 40f);
+        float left = (Screen.width - panelWidth) * 0.5f;
+        float top = (Screen.height - panelHeight) * 0.5f;
+        Rect panel = new Rect(left, top, panelWidth, panelHeight);
+        GUI.Box(panel, GUIContent.none);
+        GUI.Label(new Rect(left + 20f, top + 12f, panelWidth - 150f, 42f), "INVENTARIO", inventoryTitleStyle);
+
+        if (GUI.Button(new Rect(left + panelWidth - 135f, top + 20f, 115f, 34f), "Cerrar (Tab)"))
+        {
+            SetInventoryOpen(false);
+            return;
+        }
+
+        if (GUI.Button(new Rect(left + 24f, top + 58f, 150f, 34f), "Inventario"))
+            activeInventoryTab = 0;
+        if (GUI.Button(new Rect(left + 184f, top + 58f, 150f, 34f), "Archivos"))
+            activeInventoryTab = 1;
+
+        float listLeft = left + 24f;
+        float listTop = top + 108f;
+        float listWidth = Mathf.Min(270f, panelWidth * 0.42f);
+        float listHeight = panelHeight - 142f;
+        float descriptionLeft = left + listWidth + 54f;
+        float descriptionWidth = panelWidth - listWidth - 78f;
+        string description;
+
+        if (activeInventoryTab == 0)
+        {
+            GUI.Label(new Rect(listLeft, listTop, listWidth, 28f), "Objetos", messageStyle);
+            IReadOnlyList<string> itemIds = inventory.ItemIds;
+            if (itemIds.Count == 0)
+            {
+                GUI.Label(new Rect(listLeft, listTop + 36f, listWidth, 40f), "Inventario vacío", inventoryDescriptionStyle);
+            }
+            else
+            {
+                float contentHeight = itemIds.Count * 48f;
+                Rect scrollRect = new Rect(listLeft, listTop + 30f, listWidth, listHeight - 30f);
+                Rect contentRect = new Rect(0f, 0f, listWidth - 20f, contentHeight);
+                inventoryScroll = GUI.BeginScrollView(scrollRect, inventoryScroll, contentRect);
+                for (int i = 0; i < itemIds.Count; i++)
+                {
+                    string itemId = itemIds[i];
+                    Rect buttonRect = new Rect(0f, i * 48f, listWidth - 24f, 42f);
+                    if (GUI.Button(buttonRect, inventory.GetDisplayName(itemId), inventoryButtonStyle))
+                        selectedInventoryItemId = itemId;
+                }
+                GUI.EndScrollView();
+            }
+
+            description = string.IsNullOrEmpty(selectedInventoryItemId)
+                ? "Selecciona un objeto para ver su descripción."
+                : inventory.GetDescription(selectedInventoryItemId);
+        }
+        else
+        {
+            GUI.Label(new Rect(listLeft, listTop, listWidth, 28f), "Mensajes", messageStyle);
+            if (messageArchive.Count == 0)
+            {
+                GUI.Label(new Rect(listLeft, listTop + 36f, listWidth, 40f), "Todavía no hay mensajes guardados.", inventoryDescriptionStyle);
+            }
+            else
+            {
+                float contentHeight = messageArchive.Count * 54f;
+                Rect scrollRect = new Rect(listLeft, listTop + 30f, listWidth, listHeight - 30f);
+                Rect contentRect = new Rect(0f, 0f, listWidth - 20f, contentHeight);
+                archiveScroll = GUI.BeginScrollView(scrollRect, archiveScroll, contentRect);
+                for (int i = 0; i < messageArchive.Count; i++)
+                {
+                    string entry = messageArchive[i];
+                    string buttonText = (i + 1) + ". " + Shorten(entry, 42);
+                    Rect buttonRect = new Rect(0f, i * 54f, listWidth - 24f, 48f);
+                    if (GUI.Button(buttonRect, buttonText, inventoryButtonStyle))
+                        selectedArchiveMessage = entry;
+                }
+                GUI.EndScrollView();
+            }
+
+            description = string.IsNullOrEmpty(selectedArchiveMessage)
+                ? "Selecciona un mensaje para volver a leerlo."
+                : selectedArchiveMessage;
+        }
+
+        GUI.Label(new Rect(descriptionLeft, listTop, descriptionWidth, 28f), "Descripción", messageStyle);
+        GUI.Box(new Rect(descriptionLeft, listTop + 34f, descriptionWidth, listHeight - 34f), GUIContent.none);
+        GUI.Label(new Rect(descriptionLeft + 16f, listTop + 50f, descriptionWidth - 32f, listHeight - 66f),
+            description, inventoryDescriptionStyle);
+    }
+
+    private string Shorten(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= maxLength)
+            return text;
+
+        return text.Substring(0, maxLength - 3) + "...";
     }
 }
